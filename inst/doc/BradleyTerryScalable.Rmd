@@ -1,0 +1,280 @@
+---
+title: "Fitting the Bradley-Terry model to large and potentially sparse datasets"
+author: "Ella Kaye and David Firth"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+bibliography: BradleyTerryBib.bib
+vignette: >
+  %\VignetteIndexEntry{Fitting the Bradley-Terry model to large and potentially sparse datasets}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+# Introduction
+The Bradley-Terry model [@BradleyTerry:1952] is a popular method for finding the probabilities for each item in a set being preferred over each of the others, based on repeated pairwise comparisons between the items of the set. It is used to assign a strength parameter to each item in a group, on the basis of a number of pairwise comparisons between those items. An overall ranking may then be formed on the basis of these strengths. 
+
+The model is popular in a sporting context, where the set may be a league and the items are players or teams within that league. The comparisons are matches between the players or teams and the strength parameter represents the overall skill of that player or team. Extensions of the Bradley-Terry model have also been used to rank chess players [@Elo:1978] and NASCAR drivers [@Hunter:2004]. For a non-sporting example, the Bradley-Terry model has been used to derive influence rankings for journals, where the comparison between two journals are the citations from each to the other [@Stigler:1994; @Varin:2016].
+
+In recent years, the de facto method for fitting Bradley-Terry models has been to find the maximum likelihood estimate using the MM-algorithm of [@Hunter:2004]. However, the existence and uniqueness of the MLE is only guaranteed under certain assumptions on the data set, as first described by @Ford:1957. As an alternative to finding the MLE, @Caron:2012 have proposed a Bayesian approach. 
+
+The CRAN package **BradleyTerry2** is a well-established package for fitting the Bradley-Terry model. The **BradleyTerryScalable** package is not as fully-featured, for example it does not allow for home-advantage, nor can it incorporate covariate information. However, **BradleyTerryScalable** is designed to do one thing well, namely to fit the Bradley-Terry model to large and potentially sparse datasets. It can easily handle much bigger datasets, with many more items. Moreover, unlike **BradleyTerry2**, **BradleyTerryScalable** can be used to find both the MLE and a Bayesian MAP estimate of the strength parameter, thus enabling the model to be fitted even when the underlying comparison graph is not fully connected. As with **BradleyTerry2**, a great deal of care has been taken to provide a simple and intuitive user interface.
+
+In the Background section, we first present the Bradley-Terry model, and the conditions under which the its maximum likelhood estimate exists. We then present algorithms that can be used to find the MLE and MAP estimates.
+
+In the BradleyTerryScalable section, we present our package, and demonstate its use on a couple of toy datasets, as well as a larger, synthetic dataset.
+
+
+# Background
+## The Bradley-Terry model
+Consider a set of $K$ items. Without loss of generality, we will refer to the outcome of the comparison as a win for one item and a loss for the other. For items $i$ and $j$, the Bradley-Terry model assumes:
+
+$$
+p_{ij} = \mathbb{P}(i \text{ beats } j) = \frac{\pi_i}{\pi_i + \pi_j},
+$$
+where $\pi_k$ is a positive-valued parameter which represents the strength of item $k$, for $k = 1,\ldots, K$. We denote ${\pi} = \{\pi_k\}_{k = 1}^K$. Let $w_{ij}$ be the number of times that $i$ wins against $j$ and $n_{ij} = w_{ij} + w_{ji}$ be the number of comparisons between $i$ and $j$, and assume, by convention, that $w_{ii} = 0$. Then, assuming that the outcome of each match is independent, the log-likelihood based on model is
+
+$$
+\ell({\pi}) = \sum_{i = 1}^{K}\sum_{j = 1}^{K} [w_{ij}(\log \pi_i - \log(\pi_i + \pi_j))].
+$$
+Since $\ell({\pi}) = \ell({\alpha\pi})$ for $\alpha > 0$, for identifiability we need a constraint on the parameter space: we take this to be $\sum_{i = 1}^K \pi_i = K$.
+
+An alternative parameterisation of the Bradley-Terry model is to set $\beta_k = \log \pi_k$, which leads to the logit-linear form
+$$
+\text{logit}[p_{ij}] = \beta_i - \beta_j.
+$$
+
+### The comparison graph and the existence of the MLE
+There is a graph-theoretic interpretation of the comparison data that will prove useful. We define the **comparison graph** to have as its nodes the $K$ items and we let there be a directed edge $(i, j)$ whenever $i$ has beaten $j$ at least once. The weight on that edge is $w_{ij}$.
+
+@Ford:1957 noted that if it is possible to partition the items into two groups, A and B, such that no item in A has ever been compared to an item in B, then there is no ground for rating any item in A with respect to any item in B. Any items who win all their comparisons (or groups of items who win all their comparisons relative to another group) also cause problems, for then there is no finite maximiser of the log-likelihood. Therefore, for a unique, finite MLE to exist, it is necessary assume the following: In every possible partition of the items into two non-empty subsets, some item in the second set beats some item in the first set at least once. Equivalently:
+
+> For a unique finite MLE to exist, the comparison graph must be fully connected (i.e.\ there is a directed path from $i$ to $j$, $\forall i, j$).
+
+## Fitting the Bradley-Terry model
+### Using the MM-algorithm to find the MLE
+To find the MLE of the Bradley-Terry model, @Hunter:2004 proposed using an  MM-algorithm [@Lange:2000]. This leads to a fixed-point iteration:
+
+$$
+\pi_i^{(n+1)} = \frac{W_i}{\sum_{j=1}^K \frac{n_{ij}}{\pi_i^{(n)} + \pi_j^{(n)}}},
+$$
+where $W_i = \sum_{j = 1}^K w_{ij}$ is the total number of comparisons won by item $i$ and $n_{ij} = w_{ij} + w_{ji}$ is the number of comparisons between items $i$ and $j$.
+
+### Using the EM-algorithm to find the MAP estimate
+@Caron:2012 take a Bayesian approach to estimating $\pi$. First they introduce latent variables, then the following prior on $\pi$:
+$$
+p(\pi) = \prod_{i=1}^K \mathcal{G}(\pi_i; a, b).
+$$
+This is a conjugate prior, and the resulting log-posterior distribution can be maximised by the EM-algorithm to find the MAP estimate of $\pi$. This leads to the fixed point iteration
+$$
+\pi_i^{(n+1)} = \frac{a - 1 + W_i}{b + \sum_{j=1}^K\frac{n_{ij}}{\pi_i^{(n)} + \pi_j^{(n)}}}.
+$$
+Note that when $a = 1$ and $b = 0$, the EM and MM-algorithms are equivalent and the MAP estimate and MLE are identical. Moreover, $b$ is not likelihood-identifiable, so the estimate of $\pi$ depends only on the data and the value of $a$. 
+
+# BradleyTerryScalable
+## Installing the package
+```{r eval = FALSE}
+# installing from CRAN
+install.packages("BradleyTerryScalable")
+
+# installing from GitHub
+install.packages("devtools") # if required
+devtools::install_github("EllaKaye/BradleyTerryScalable", build_vignettes = TRUE)
+```
+
+```{r}
+library(BradleyTerryScalable)
+```
+
+## Preparing the data
+The main model-fitting function in this package is `btfit()`. This function takes as its main argument an object of class `btdata`. To create a `btdata` object, use the function `btdata(x)`.
+
+The `x` argument to `btdata` can be one of four classes of object:
+
+- A matrix (either a base `matrix` or a class from the `Matrix` package), dimension $K$ by $K$, where $K$ is the number of items. The $i,j$-th element is $w_{ij}$, the number of times item $i$ has beaten item $j$. Ties can be accounted for by assigning half a win (i.e. 0.5) to each item.
+
+- A contingency table of class `table`, similar to the matrix described in the above point.
+
+- An `igraph`, representing the *comparison graph*, with the $K$ items as nodes. For the edges: 
+    - If the graph is unweighted, a directed edge from node $i$ to node $j$ for every time item $i$ has beaten item $j$
+    - If the graph is weighted, then one edge from node $i$ to node $j$ if item $i$ has beaten item $j$ at least once, with the weight attribute of that edge set to the number of times $i$ has beaten $j$.
+
+
+- A data frame (`data.frame` or `tibble`), with three or four columns
+    - If the data frame has three columns, then the first column must be the name of the first item, the second column must be the name of the second item, and the third column must be the number of times the first item has beaten the second item.
+    - If the data frame has four columns, then the first column must be the name of the first item, the second column must be the name of the second item, and the third column must be the number of times the first item has beaten the second item and the fourth column must be the number of times the second item has beaten the first item.
+    - In either of these cases, the data can be aggregated, or there can be one row per comparison.
+    - Ties can be accounted for by assigning half a win (i.e. 0.5) to each item.
+    
+We anticipate that the user may have data in a three-column data frame that does not match the description of the three-column data frame above. For example, the data frame could have one row per comparison, where the third column contains a code to indicate which of the two items won, say `W1` if the item in column 1 won, `W2` if the item in column 2 won and `D` if it was a tie/draw. Alternatively, the third column could contain the win-count, but only relative to the first item, i.e. 1 if the first item wins, 0 if it loses and 0.5 if there was a draw. In this case, the `btdata` function won't know that a loss for the first item item should be counted as a win for the second item.
+
+For the cases described in the previous paragraph, the `BradleyTerryScalable` package provides the `codes_to_counts()` function, which takes such three-column data-frames and returns a four-column data frame of the required format for passing to the `btdata()` function.
+    
+    
+The `BradleyTerryScalable` package provides two toy data sets which we'll use in this demonstration:
+
+```{r}
+data(citations) 
+citations
+data(toy_data)
+toy_data
+```
+
+
+`citations` is in an appropriate format to pass to `btdata()`, whereas `toy_data` needs to be passed through `codes_to_counts()` first:
+```{r}
+citations_btdata <- btdata(citations)
+toy_data_4col <- codes_to_counts(toy_data, c("W1", "W2", "D"))
+toy_btdata <- btdata(toy_data_4col, return_graph = TRUE) 
+```
+
+A `btdata` object is a list containing two or three elements: 
+
+- `wins`: a matrix of the form described in the second bullet point above
+- `components`: a list of the fully-connected components of the comparison graph (see the third bullet point above)
+- `graph`: if `return_graph = TRUE`, then the `igraph` object of the comparison graph is returned, which can be useful for visualising the data.
+
+```{r message = FALSE, fig.align = "center"}
+library(igraph)
+par(mar = c(0, 0, 0, 0) + 0.1)  
+plot.igraph(toy_btdata$graph, vertex.size = 28, edge.arrow.size = 0.5) 
+```
+
+
+Information about the `btdata` objects can be seen through the `summary.btdata()` method:
+```{r}
+summary(citations_btdata)
+summary(toy_btdata)
+```
+
+Note that components of size 1 will be filtered out in the MLE fit (see next section); the model doesn't make sense for them.
+
+`select_components()` can be used to create a subset of a `btdata` object. In our toy case, the following all give the same subset:
+```{r}
+toy_btdata_subset <- select_components(toy_btdata, "3")
+toy_btdata_subset <- select_components(toy_btdata, function(x) length(x) == 4)
+toy_btdata_subset <- select_components(toy_btdata, function(x) "Cyd" %in% x)
+summary(toy_btdata_subset)
+```
+
+Alternatively, set the `subset` argument in `btfit()`.
+
+## Fitting the model
+`summary.btdata(object)` gives information on whether or not the underlying comparison graph is fully connected. This affects the type of estimate available for the strength parameter.
+
+- If the comparison graph is fully connected (i.e. if `Fully-connected: TRUE` is printed), then the maximum likelihood estimate (MLE) for the Bradley-Terry model exists and is finite.
+- If the comparison graph is not fully connected (i.e. if `Fully-connected: FALSE` is printed), then we cannot find the MLE for the full dataset. There are two alternatives:
+    - Find the MLE on each fully connected component of the comparison graph (and note then that it is only meaningful to rank and compare items within the same component).
+    - Place a Bayesian prior on the model, then find the maximum a posteriori (MAP) estimate. This always exists and is finite. It gives a principled way of ranking and comparing all $K$ items.
+
+The function `btfit()` requires two arguments: the data (in the form of a `btdata` oject), and `a`, which controls whether the MLE or MAP estimate is returned.
+
+- If `a = 1`, the MLE is returned, either on the full dataset if the comparison graph is fully-connected, or else the MLE is found separately for each fully-connected component.
+- If `a > 1`, the MAP estimate is returned, with `a` as the value of the shape parameter in the prior.
+
+See `?btfit()` or the *Fitting the Bradley-Terry model* section above for more details.
+
+```{r}
+citations_fit <- btfit(citations_btdata, 1)
+toy_fit_MLE <- btfit(toy_btdata, 1)
+toy_fit_MAP <- btfit(toy_btdata, 1.1)
+```
+
+The likelihood equations for the Bradley_Terry model, including the prior, give
+$$
+a - 1 + W_i = b\pi_i + \sum_{j \neq i} \frac{n_{ij}\pi_i}{\pi_i + \pi_j},
+$$
+$i = 1, \ldots, K$. For the algorithm to have converged, we want $\pi$ to be such that the LHS and RHS of this equation are close for all $i$. Therefore, we set the convergence criterion as
+
+$$
+\left|\frac{a - 1 + W_i}{b\pi_i + \sum_{j \neq i} \frac{n_{ij}\pi_i}{\pi_i + \pi_j}} - 1\right| < \epsilon,
+$$
+for all $i$. The `epsilon` argument to `btfit()` sets the value of $\epsilon$ (the default is 0.001). There is also a `maxit` argument to set the maximum number of iterations for each component (the default is 10,000).
+
+`btfit` objects are lists, and they are not designed to be examined directly, but to be passed to other methods.
+    
+## Methods for a `btfit` object
+### `summary.btfit()`, `coef.btfit()` and `vcov.btfit()`
+The `summary.btfit()` method returns a list with
+
+- `call`: the call to `btfit()`
+- `item_summary`: a data frame with one row for each item in the fit (note that this can be fewer than the number of items in the data, if there were any components of size one, or if the fit was on a subset). Items are ranked in descending order *within each component*
+- `component_summary`: a data frame with one row per component in the fit.
+
+The standard errors are *not* returned by default (since the underlying `vcov.btfit()` function can be slow for large matrices), but can be included by setting `SE = TRUE`. It is also possible to set a reference item, and to return the summary for only a subset of components (see `?summary.btfit()`).
+
+The `coef.btfit()` method extracts the parameter estimates. This is the strength parameter, on the log scale, constrained (by default) such that the mean of the estimates is zero. By default it is a vector if `btfit()` was run on the full dataset, or a list of vectors otherwise, but there is also the possibility of returning a data frame by setting `as_df = TRUE`.
+
+The `vcov.btfit()` method returns the variance-covariance matrix (or a list of these matrices by component), and also has `ref` and `subset` arguments (see `?vcov.btfit()`).
+
+```{r}
+summary(citations_fit)
+summary(toy_fit_MLE, SE = TRUE)
+coef(toy_fit_MAP)
+vcov(citations_fit, ref = "JASA")
+```
+
+### `btprob()` and `fitted.btfit()`
+The `btprob` function calculates the Bradley-Terry probabilities that item $i$ beats item $j$. By default the result is a matrix if `btfit` was run on the full dataset, or a list of matrices otherwise, but there is also the possibility of returning a data frame by setting `as_df = TRUE`. The `fitted.btfit()` method functions similarly, except it returns the expected number of wins (see `?fitted.btfit()`).
+```{r}
+btprob(citations_fit)
+fitted(toy_fit_MLE, as_df = TRUE)
+```
+
+### `simulate.btfit()` and `simulate_BT()`
+There are two functions to simulate data from a Bradley-Terry model. The S3 method `simulate.btfit()` takes a `btfit` object *which has been fitted on one component* (either the full dataset, or a one-component subset). The underlying function `simulate_BT()` takes an `N` matrix (i.e. where the $i,j$-th element is the number of times items $i$ and $j$ have been compared) and a vector `pi`, the strength parameters of a Bradley-Terry model (note that `pi` is *not* the same as the estimates in `coef.btfit()` and `summary.btfit()`, which are on the logarithmic scale). Both functions return a `wins` matrix by default, but can also be set to return a `btdata` object instead.
+
+For example, we can simulate 100 new datasets from the fitted model for the small `citations` dataset:
+```{r}
+citations_sim <- simulate(citations_fit, nsim = 100, seed = 1)
+citations_sim[1:2]
+```
+
+As a bigger example, let's simulate a single instance of a fairly sparse tournament with 1000 items (or 'players'), and then fit the Bradley-Terry model to the resulting data:
+```{r, warning=FALSE, message=FALSE, fig.width = 7, fig.height = 7, out.width = '97%'}
+library(Matrix)
+library(dplyr)
+library(ggplot2)
+set.seed(1989)
+n_items <- 1000
+
+## Generate at random a sparse, symmetric matrix of binomial totals: 
+Nvalues <- rpois(n = n_items * (n_items - 1) / 2, lambda = 1)  
+notzero <- Nvalues > 0
+Nmatrix <- Matrix(nrow = n_items, ncol = n_items)
+ij <- which(lower.tri(Nmatrix), arr.ind = TRUE)[notzero, ]
+Nmatrix <- sparseMatrix(
+             i = ij[, 1],
+             j = ij[, 2],  
+             x = Nvalues[notzero],
+             symmetric = TRUE,   
+             dims = c(n_items, n_items)) 
+
+## Generate at random the (normalized to mean 1) 'player abilities':
+pi_vec <- exp(rnorm(n_items) / 4)
+pi_vec <- pi_vec / mean(pi_vec)
+
+##  Now generate contest outcome counts from the Bradley-Terry model:
+big_matrix <- simulate_BT(pi_vec, Nmatrix, nsim = 1)[[1]]
+big_btdata <- btdata(big_matrix)
+
+## Fit the Bradley-Terry model to the simulated data:
+the_model <- btfit(big_btdata, a = 1)
+pi_fitted <- the_model $ pi $ full_dataset
+
+## Plot fitted vs true abilities:
+plot_df <- tibble(x = log(pi_vec[as.numeric(names(pi_fitted))]),
+                  y = log(pi_fitted))
+
+ggplot(plot_df, aes(x, y)) +
+  geom_point(alpha = 0.5) +
+  geom_abline() + 
+  xlab("true strength") +
+  ylab("maximum likelihood estimate") +
+  ggtitle("1000-player simulation from a Bradley-Terry model") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+## Further information
+All code for the package is available at [https://github.com/EllaKaye/BradleyTerryScalable](https://github.com/EllaKaye/BradleyTerryScalable) and a documentation website is available at [https://ellakaye.github.io/BradleyTerryScalable](https://ellakaye.github.io/BradleyTerryScalable)
+
+# References
